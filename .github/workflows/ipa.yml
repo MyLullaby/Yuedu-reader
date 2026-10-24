@@ -1,0 +1,123 @@
+name: Build unsigned IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: personal-unsigned-ipa
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.repository_owner == 'MyLullaby'
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Configure personal offline build
+        run: |
+          python3 - <<'PY'
+          import plistlib
+          from pathlib import Path
+
+          # No author's Firebase credentials are used. Cloud authentication,
+          # feedback and synchronization require a separately configured backend.
+          config = {
+              "API_KEY": "AIzaSy" + "0" * 33,
+              "GCM_SENDER_ID": "123456789012",
+              "PLIST_VERSION": "1",
+              "BUNDLE_ID": "com.zhangruilin.yuedureader",
+              "PROJECT_ID": "yuedu-personal-offline",
+              "GOOGLE_APP_ID": "1:123456789012:ios:0000000000000000000000",
+              "IS_ADS_ENABLED": False,
+              "IS_ANALYTICS_ENABLED": False,
+              "IS_APPINVITE_ENABLED": False,
+              "IS_GCM_ENABLED": False,
+              "IS_SIGNIN_ENABLED": False,
+          }
+          Path("GoogleService-Info.plist").write_bytes(plistlib.dumps(config))
+          path = Path("Info.plist")
+          info = plistlib.loads(path.read_bytes())
+          info["FirebaseDataCollectionDefaultEnabled"] = False
+          info["FirebaseCrashlyticsCollectionEnabled"] = False
+          info["FIREBASE_ANALYTICS_COLLECTION_DEACTIVATED"] = True
+          path.write_bytes(plistlib.dumps(info))
+          PY
+
+      - name: Archive for iOS devices without signing
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          xcodebuild archive \
+            -project Yuedu-Reader.xcodeproj \
+            -scheme Yuedu-Reader \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$PWD/build/DerivedData" \
+            -archivePath "$PWD/build/Yuedu.xcarchive" \
+            -onlyUsePackageVersionsFromResolvedFile \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY= \
+            DEVELOPMENT_TEAM= \
+            GIT_COMMIT_SHA="$(git rev-parse --short HEAD)" \
+            2>&1 | tee build/archive.log
+
+      - name: Package and verify IPA
+        run: |
+          set -euo pipefail
+          mkdir -p build/package/Payload out
+          ditto --norsrc build/Yuedu.xcarchive/Products/Applications/YueduReader.app \
+            build/package/Payload/YueduReader.app
+          app="$PWD/build/package/Payload/YueduReader.app"
+          test -f "$app/YueduReader"
+          xcrun lipo -verify_arch arm64 "$app/YueduReader"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$app/Info.plist"
+          version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Info.plist")
+          build_number=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Info.plist")
+          (cd build/package && ditto -c -k --norsrc --keepParent Payload "$GITHUB_WORKSPACE/out/YR.ipa")
+          unzip -tq out/YR.ipa
+          (cd out && zip -q "YR-v${version}-b${build_number}.zip" YR.ipa)
+          (cd out && shasum -a 256 YR.ipa *.zip > SHA256SUMS)
+          cat > out/BUILD-INFO.txt <<EOF
+          Source: https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}
+          Run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          Version: ${version} (${build_number})
+          Target: iOS device arm64, Release
+          Signing: UNSIGNED; re-sign before installation
+          Backend: offline placeholder; Firebase services are not configured
+          Distribution: personal testing only; no GitHub Release
+          EOF
+          cat out/BUILD-INFO.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload IPA and AirDrop ZIP as Actions artifacts only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Yuedu-unsigned-IPA-${{ github.run_number }}
+          path: out/
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Yuedu-build-log-${{ github.run_number }}
+          path: build/archive.log
+          if-no-files-found: ignore
+          retention-days: 3

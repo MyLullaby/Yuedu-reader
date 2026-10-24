@@ -561,7 +561,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [ \"${CONFIGURATION}\" != \"Debug\" ]; then\n  \"${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\"\nfi\n";
+			shellScript = "if [ \"${CONFIGURATION}\" != \"Debug\" ] && [ \"${CODE_SIGNING_ALLOWED}\" != \"NO\" ]; then\n  \"${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\"\nfi\n";
 		};
 		46C7A512D5F0480000000002 /* Inject Git Commit SHA */ = {
 			isa = PBXShellScriptBuildPhase;
