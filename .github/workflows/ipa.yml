@@ -61,7 +61,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build
-          xcodebuild archive \
+          xcodebuild -quiet archive \
             -project Yuedu-Reader.xcodeproj \
             -scheme Yuedu-Reader \
             -configuration Release \
@@ -84,7 +84,7 @@ jobs:
             build/package/Payload/YueduReader.app
           app="$PWD/build/package/Payload/YueduReader.app"
           test -f "$app/YueduReader"
-          xcrun lipo -verify_arch arm64 "$app/YueduReader"
+          xcrun lipo "$app/YueduReader" -verify_arch arm64
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$app/Info.plist"
           version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Info.plist")
@@ -105,7 +105,7 @@ jobs:
           cat out/BUILD-INFO.txt >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload IPA and AirDrop ZIP as Actions artifacts only
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: Yuedu-unsigned-IPA-${{ github.run_number }}
           path: out/
@@ -113,11 +113,19 @@ jobs:
           retention-days: 3
           compression-level: 0
 
-      - name: Upload build log on failure
+      - name: Preserve compiled app if packaging failed
+        if: failure() && hashFiles('build/Yuedu.xcarchive/Products/Applications/YueduReader.app/Info.plist') != ''
+        run: |
+          tar -czf build/Yuedu-app.tar.gz \
+            -C build/Yuedu.xcarchive/Products/Applications YueduReader.app
+
+      - name: Upload build diagnostics on failure
         if: failure()
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: Yuedu-build-log-${{ github.run_number }}
-          path: build/archive.log
+          path: |
+            build/archive.log
+            build/Yuedu-app.tar.gz
           if-no-files-found: ignore
           retention-days: 3
