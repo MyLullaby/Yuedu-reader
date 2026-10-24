@@ -299,7 +299,7 @@ final class WorkIndexService {
 
     /// A copy's entry: its record, plus the identifiers and language its sidecar holds.
     nonisolated static func entry(for record: SourceRecord, sidecar: ImportedMetadata?) -> WorkIndexEntry {
-        let series = sidecar.flatMap { series(in: $0.values, for: record) }
+        let series = sidecar.flatMap { Self.series(in: $0.values, for: record) }
         return WorkIndexEntry(
             record: record,
             extraIdentifiers: sidecar?.identifiers ?? [],
